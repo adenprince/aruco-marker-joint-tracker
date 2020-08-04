@@ -3,6 +3,8 @@
 
 #include <opencv2/highgui.hpp>
 #include <opencv2/aruco.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/calib3d.hpp>
 #include <iostream>
 #include <fstream>
 
@@ -244,39 +246,82 @@ int main(int argc, char* argv[]) {
                  << "(Mean = " << 1000 * totalTime / double(totalIterations) << " ms)" << endl;
         }
 
-        if(totalTime - prevCollectionTime >= collectionTime) {
-            vector<Vec3f> jointPoints(3);
-            int pointsDetected = 0;
-            int numIDs = ids.size();
-
-            for(int i = 0; i < numIDs; i++) {
-                int curID = ids.at(i);
-
-                if(curID < 3) {
-                    jointPoints.at(curID) = tvecs.at(i);
-                    pointsDetected++;
-                }
-            }
-
-            if(pointsDetected == 3) {
-                outputFile << totalTime << "," << getJointAngle(jointPoints) << endl;
-            }
-            else {
-                outputFile << totalTime << "," << endl;
-            }
-
-            prevCollectionTime = totalTime;
-        }
-
         // draw results
         image.copyTo(imageCopy);
         if(ids.size() > 0) {
             aruco::drawDetectedMarkers(imageCopy, corners, ids);
 
             if(estimatePose) {
-                for(unsigned int i = 0; i < ids.size(); i++)
-                    aruco::drawAxis(imageCopy, camMatrix, distCoeffs, rvecs[i], tvecs[i],
-                                    markerLength * 0.5f);
+                vector<Vec3f> jointPoints(3);
+                vector<Point2f> jointImagePoints(3);
+                float jointAngle = -1.0f;
+                int pointsDetected = 0;
+                int numIDs = ids.size();
+
+                for(int i = 0; i < numIDs; i++) {
+                    float length = markerLength * 0.5f;
+
+                    aruco::drawAxis(imageCopy, camMatrix, distCoeffs, rvecs[i], tvecs[i], length);
+
+                    // Get marker 2D image points (code from OpenCV drawFrameAxes function)
+                    vector<Point3f> axesPoints;
+                    axesPoints.push_back(Point3f(0, 0, 0));
+                    axesPoints.push_back(Point3f(length, 0, 0));
+                    axesPoints.push_back(Point3f(0, length, 0));
+                    axesPoints.push_back(Point3f(0, 0, length));
+                    vector<Point2f> imagePoints;
+                    projectPoints(axesPoints, rvecs[i], tvecs[i], camMatrix, distCoeffs, imagePoints);
+
+                    int curID = ids.at(i);
+
+                    if(curID < 3) {
+                        jointPoints.at(curID) = tvecs[i];
+                        jointImagePoints.at(curID) = imagePoints[0];
+                        pointsDetected++;
+                    }
+                }
+
+                if(pointsDetected == 3) {
+                    jointAngle = getJointAngle(jointPoints);
+
+                    // Draw joint angle
+                    line(imageCopy, jointImagePoints[1], jointImagePoints[0], Scalar(0, 0, 0), 2);
+                    line(imageCopy, jointImagePoints[1], jointImagePoints[2], Scalar(0, 0, 0), 2);
+                    
+                    // Get each line of the joint angle
+                    Vec2f v1 = jointImagePoints[0] - jointImagePoints[1];
+                    Vec2f v2 = jointImagePoints[2] - jointImagePoints[1];
+                    
+                    // Get point in the middle of the angle
+                    Vec2f bisection = (normalize(v1) + normalize(v2)) * 25.0f;
+                    Point2f p;
+                    p.x = bisection[0] + jointImagePoints[1].x;
+                    p.y = bisection[1] + jointImagePoints[1].y;
+
+                    // Get rounded angle value as a string
+                    string displayText = to_string((int) round(jointAngle));
+                    
+                    // Center angle text
+                    int baseline = 0;
+                    Size textSize = getTextSize(displayText, 0, 0.5, 2, &baseline);
+                    p.x -= textSize.width / 2.0f;
+                    p.y -= textSize.height / 2.0f;
+
+                    // Display angle text centered in the angle
+                    putText(imageCopy, displayText, p, 0, 0.5, Scalar(255, 255, 255), 2);
+                }
+
+                // Write data to file if enough time has passed or first iteration
+                if(totalTime - prevCollectionTime >= collectionTime || totalIterations == 1) {
+                    if(pointsDetected == 3) {
+                        outputFile << totalTime << "," << jointAngle << endl;
+                    }
+                    else {
+                        outputFile << totalTime << "," << endl;
+                    }
+
+                    prevCollectionTime = totalTime;
+                }
             }
         }
 
