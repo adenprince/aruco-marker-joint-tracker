@@ -4,6 +4,7 @@
 #include <opencv2/highgui.hpp>
 #include <opencv2/aruco.hpp>
 #include <iostream>
+#include <fstream>
 
 using namespace std;
 using namespace cv;
@@ -23,10 +24,47 @@ namespace {
         "{dp       |       | File of marker detector parameters }"
         "{r        |       | show rejected candidates too }"
         "{refine   |       | Corner refinement: CORNER_REFINE_NONE=0, CORNER_REFINE_SUBPIX=1,"
-        "CORNER_REFINE_CONTOUR=2, CORNER_REFINE_APRILTAG=3}";
+        "CORNER_REFINE_CONTOUR=2, CORNER_REFINE_APRILTAG=3}"
+        "{o        |       | Joint angle output filename, if none, filename is automatically indexed }"
+        "{cr       |       | Number of times per second to collect joint angle data }";
 }
 
+// Check if a file with the passed filename exists
+bool fileExists(string filename) {
+    ifstream inputFile;
+    inputFile.open(filename);
+    bool isOpen = inputFile.is_open();
+    inputFile.close();
+    return isOpen;
+}
+
+
+
+// Get the first unused indexed output filename
+string getIndexedFilename() {
+    int fileIndex = 1;
+    string curFilename = "output1.csv";
+
+    // Run until an unused indexed output filename is found or the file index is too high
+    while(fileExists(curFilename) && fileIndex < INT_MAX) {
+        fileIndex++;
+        curFilename = "output" + to_string(fileIndex) + ".csv";
+    }
+
+    // Check if the maximum output filename index has been reached
+    if(fileIndex == INT_MAX && fileExists(curFilename)) {
+        cerr << "Maximum number of indexed output files used" << endl;
+        exit(1);
+    }
+
+    return curFilename;
+}
+
+
+
+// Get the angle between two vectors using three passed points
 float getJointAngle(vector<Vec3f>& jointPoints) {
+    // The second point is the vertex of the angle
     Vec3f v1 = jointPoints.at(0) - jointPoints.at(1);
     Vec3f v2 = jointPoints.at(2) - jointPoints.at(1);
     float angle = acosf(v1.dot(v2) / (norm(v1) * norm(v2))) * 180.0f / (float) CV_PI;
@@ -109,7 +147,7 @@ int main(int argc, char* argv[]) {
         //override cornerRefinementMethod read from config file
         detectorParams->cornerRefinementMethod = parser.get<int>("refine");
     }
-    std::cout << "Corner refinement method (0: None, 1: Subpixel, 2:contour, 3: AprilTag 2): " << detectorParams->cornerRefinementMethod << std::endl;
+    cout << "Corner refinement method (0: None, 1: Subpixel, 2:contour, 3: AprilTag 2): " << detectorParams->cornerRefinementMethod << endl;
 
     int camId = parser.get<int>("ci");
 
@@ -117,6 +155,24 @@ int main(int argc, char* argv[]) {
     if(parser.has("v")) {
         video = parser.get<String>("v");
     }
+
+    string outputFilename;
+    if(parser.has("o")) {
+        outputFilename = parser.get<string>("o");
+
+        if(fileExists(outputFilename)) {
+            cerr << "File " << outputFilename << " already exists" << endl;
+            return 1;
+        }
+    }
+    else {
+        outputFilename = getIndexedFilename();
+    }
+
+    double collectionRate = parser.get<double>("cr");
+
+    // Amount of time between joint angle data collection
+    double collectionTime = 1 / collectionRate;
 
     if(!parser.check()) {
         parser.printErrors();
@@ -135,6 +191,19 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    ofstream outputFile;
+    outputFile.open(outputFilename);
+
+    if(outputFile.is_open()) {
+        cout << "File " << outputFilename << " opened successfully" << endl;
+    }
+    else {
+        cerr << "File " << outputFilename << " failed to open" << endl;
+        return 1;
+    }
+
+    outputFile << "Total Time,Joint Angle" << endl;
+
     VideoCapture inputVideo;
     int waitTime;
     if(!video.empty()) {
@@ -149,15 +218,17 @@ int main(int argc, char* argv[]) {
     double totalTime = 0;
     int totalIterations = 0;
 
+    double prevCollectionTime = 0;
+
     while(inputVideo.grab()) {
         Mat image, imageCopy;
         inputVideo.retrieve(image);
 
         double tick = (double) getTickCount();
 
-        vector< int > ids;
-        vector< vector< Point2f > > corners, rejected;
-        vector< Vec3d > rvecs, tvecs;
+        vector<int> ids;
+        vector<vector<Point2f>> corners, rejected;
+        vector<Vec3d> rvecs, tvecs;
 
         // detect markers and estimate pose
         aruco::detectMarkers(image, dictionary, corners, ids, detectorParams, rejected);
@@ -170,7 +241,31 @@ int main(int argc, char* argv[]) {
         totalIterations++;
         if(totalIterations % 30 == 0) {
             cout << "Detection Time = " << currentTime * 1000 << " ms "
-                << "(Mean = " << 1000 * totalTime / double(totalIterations) << " ms)" << endl;
+                 << "(Mean = " << 1000 * totalTime / double(totalIterations) << " ms)" << endl;
+        }
+
+        if(totalTime - prevCollectionTime >= collectionTime) {
+            vector<Vec3f> jointPoints(3);
+            int pointsDetected = 0;
+            int numIDs = ids.size();
+
+            for(int i = 0; i < numIDs; i++) {
+                int curID = ids.at(i);
+
+                if(curID < 3) {
+                    jointPoints.at(curID) = tvecs.at(i);
+                    pointsDetected++;
+                }
+            }
+
+            if(pointsDetected == 3) {
+                outputFile << totalTime << "," << getJointAngle(jointPoints) << endl;
+            }
+            else {
+                outputFile << totalTime << "," << endl;
+            }
+
+            prevCollectionTime = totalTime;
         }
 
         // draw results
@@ -190,24 +285,7 @@ int main(int argc, char* argv[]) {
 
         imshow("out", imageCopy);
         char key = (char) waitKey(waitTime);
-        if(key == 'l') {
-            vector<Vec3f> jointPoints(3);
-            int pointsDetected = 0;
-            for(unsigned int i = 0; i < ids.size(); i++) {
-                int curID = ids.at(i);
-                cout << "id: " << curID << tvecs.at(i) << endl;
-
-                if(curID < 3) {
-                    jointPoints.at(curID) = tvecs.at(i);
-                    pointsDetected++;
-                }
-            }
-
-            if(pointsDetected == 3) {
-                cout << "angle: " << getJointAngle(jointPoints) << " degrees" << endl;
-            }
-        }
-        else if(key == 27) break;
+        if(key == 27) break;
     }
 
     return 0;
