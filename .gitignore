@@ -342,3 +342,4 @@ healthchecksdb
 # User files
 *.csv
 *.mkv
+imgui.ini
