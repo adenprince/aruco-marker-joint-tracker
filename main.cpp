@@ -154,8 +154,14 @@ int main(int argc, char* argv[]) {
     int camId = parser.get<int>("ci");
 
     String video;
+    double collectionTime; // Time between joint angle data collection
     if(parser.has("v")) {
         video = parser.get<String>("v");
+        collectionTime = 0; // Video will be processed as fast as possible
+    }
+    else {
+        double collectionRate = parser.get<double>("cr");
+        collectionTime = 1 / collectionRate;
     }
 
     string outputFilename;
@@ -170,11 +176,6 @@ int main(int argc, char* argv[]) {
     else {
         outputFilename = getIndexedFilename();
     }
-
-    double collectionRate = parser.get<double>("cr");
-
-    // Amount of time between joint angle data collection
-    double collectionTime = 1 / collectionRate;
 
     if(!parser.check()) {
         parser.printErrors();
@@ -221,7 +222,8 @@ int main(int argc, char* argv[]) {
     int totalIterations = 0;
 
     double prevCollectionTime = 0;
-
+    double startTime = (double) getTickCount();
+    
     while(inputVideo.grab()) {
         Mat image, imageCopy;
         inputVideo.retrieve(image);
@@ -311,16 +313,18 @@ int main(int argc, char* argv[]) {
                     putText(imageCopy, displayText, p, 0, 0.5, Scalar(255, 255, 255), 2);
                 }
 
+                double curTime = ((double) getTickCount() - startTime) / getTickFrequency();
+
                 // Write data to file if enough time has passed or first iteration
-                if(totalTime - prevCollectionTime >= collectionTime || totalIterations == 1) {
+                if(curTime - prevCollectionTime >= collectionTime || totalIterations == 1) {
                     if(pointsDetected == 3) {
-                        outputFile << totalTime << "," << jointAngle << endl;
+                        outputFile << curTime << "," << jointAngle << endl;
                     }
                     else {
-                        outputFile << totalTime << "," << endl;
+                        outputFile << curTime << "," << endl;
                     }
 
-                    prevCollectionTime = totalTime;
+                    prevCollectionTime = curTime;
                 }
             }
         }
