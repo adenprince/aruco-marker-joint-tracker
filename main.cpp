@@ -11,6 +11,21 @@
 using namespace std;
 using namespace cv;
 
+// Store program options
+struct InputSettings {
+    int dictionary = 0;
+    int cornerRefinement = 0;
+    bool hasRefinement = false;
+    bool showRejected = false;
+    int cameraID = 0;
+    int collectionRate = 0;
+    float markerLength = 0.0f;
+    string calibFilename;
+    string detectorFilename;
+    string inputFilename;
+    string outputFilename;
+};
+
 namespace {
     const char* about = "Basic marker detection";
     const char* keys =
@@ -120,88 +135,114 @@ static bool readDetectorParameters(string filename, Ptr<aruco::DetectorParameter
 
 
 
+// Get program options from the command line
+void getOptionsCLI(InputSettings& is, CommandLineParser& parser) {
+    is.dictionary = parser.get<int>("d");
+    is.showRejected = parser.has("r");
+    is.markerLength = parser.get<float>("l");
+
+    if(parser.has("dp")) {
+        is.detectorFilename = parser.get<string>("dp");
+    }
+
+    if(parser.has("refine")) {
+        is.hasRefinement = true;
+        is.cornerRefinement = parser.get<int>("refine");
+    }
+
+    is.cameraID = parser.get<int>("ci");
+
+    if(parser.has("v")) {
+        is.inputFilename = parser.get<String>("v");
+    }
+    else {
+        is.collectionRate = parser.get<int>("cr");
+    }
+
+    if(parser.has("o")) {
+        is.outputFilename = parser.get<string>("o");
+    }
+    else {
+        is.outputFilename = getIndexedFilename();
+    }
+
+    if(parser.has("c")) {
+        is.calibFilename = parser.get<string>("c");
+    }
+}
+
+
+
 /**
  */
 int main(int argc, char* argv[]) {
+    InputSettings is;
+
     CommandLineParser parser(argc, argv, keys);
     parser.about(about);
 
     if(argc < 2) {
         parser.printMessage();
-        return 0;
+        return 1;
     }
 
-    int dictionaryId = parser.get<int>("d");
-    bool showRejected = parser.has("r");
-    bool estimatePose = parser.has("c");
-    float markerLength = parser.get<float>("l");
+    getOptionsCLI(is, parser);
+    
+    bool estimatePose = (is.calibFilename != "");
 
     Ptr<aruco::DetectorParameters> detectorParams = aruco::DetectorParameters::create();
-    if(parser.has("dp")) {
-        bool readOk = readDetectorParameters(parser.get<string>("dp"), detectorParams);
+    if(is.detectorFilename != "") {
+        bool readOk = readDetectorParameters(is.detectorFilename, detectorParams);
         if(!readOk) {
             cerr << "Invalid detector parameters file" << endl;
-            return 0;
-        }
-    }
-
-    if(parser.has("refine")) {
-        //override cornerRefinementMethod read from config file
-        detectorParams->cornerRefinementMethod = parser.get<int>("refine");
-    }
-    cout << "Corner refinement method (0: None, 1: Subpixel, 2:contour, 3: AprilTag 2): " << detectorParams->cornerRefinementMethod << endl;
-
-    int camId = parser.get<int>("ci");
-
-    String video;
-    double collectionTime; // Time between joint angle data collection
-    if(parser.has("v")) {
-        video = parser.get<String>("v");
-        collectionTime = 0; // Video will be processed as fast as possible
-    }
-    else {
-        double collectionRate = parser.get<double>("cr");
-        collectionTime = 1 / collectionRate;
-    }
-
-    string outputFilename;
-    if(parser.has("o")) {
-        outputFilename = parser.get<string>("o");
-
-        if(fileExists(outputFilename)) {
-            cerr << "File " << outputFilename << " already exists" << endl;
             return 1;
         }
     }
-    else {
-        outputFilename = getIndexedFilename();
+
+    if(is.hasRefinement) {
+        //override cornerRefinementMethod read from config file
+        detectorParams->cornerRefinementMethod = is.cornerRefinement;
+    }
+    cout << "Corner refinement method (0: None, 1: Subpixel, 2:contour, 3: AprilTag 2): " << detectorParams->cornerRefinementMethod << endl;
+
+    // Time between joint angle data collection
+    double collectionTime = 0; // Collect data as fast as possible for pre-recorded video
+
+    // Check if there is a collection rate and using real-time video
+    if(is.collectionRate != 0 && is.inputFilename == "") {
+        collectionTime = 1 / is.collectionRate;
+    }
+
+    if(fileExists(is.outputFilename)) {
+        cerr << "File " << is.outputFilename << " already exists" << endl;
+        return 1;
     }
 
     if(!parser.check()) {
         parser.printErrors();
-        return 0;
+        return 1;
     }
 
     Ptr<aruco::Dictionary> dictionary =
-        aruco::getPredefinedDictionary(aruco::PREDEFINED_DICTIONARY_NAME(dictionaryId));
+        aruco::getPredefinedDictionary(aruco::PREDEFINED_DICTIONARY_NAME(is.dictionary));
 
     Mat camMatrix, distCoeffs;
     if(estimatePose) {
-        bool readOk = readCameraParameters(parser.get<string>("c"), camMatrix, distCoeffs);
+        bool readOk = readCameraParameters(is.calibFilename, camMatrix, distCoeffs);
         if(!readOk) {
             cerr << "Invalid camera file" << endl;
-            return 0;
+            return 1;
         }
     }
 
     ofstream outputFile;
-    outputFile.open(outputFilename);
+    outputFile.open(is.outputFilename);
 
     if(outputFile.is_open()) {
-        cout << "File " << outputFilename << " opened successfully" << endl;
+        cout << "File " << is.outputFilename << " opened successfully" << endl;
     }
     else {
-        cerr << "File " << outputFilename << " failed to open" << endl;
+        cerr << "File " << is.outputFilename << " failed to open" << endl;
         return 1;
     }
 
@@ -209,12 +250,12 @@ int main(int argc, char* argv[]) {
 
     VideoCapture inputVideo;
     int waitTime;
-    if(!video.empty()) {
-        inputVideo.open(video);
+    if(is.inputFilename != "") {
+        inputVideo.open(is.inputFilename);
         waitTime = 50;
     }
     else {
-        inputVideo.open(camId);
+        inputVideo.open(is.cameraID);
         waitTime = 10;
     }
 
@@ -237,7 +278,7 @@ int main(int argc, char* argv[]) {
         // detect markers and estimate pose
         aruco::detectMarkers(image, dictionary, corners, ids, detectorParams, rejected);
         if(estimatePose && ids.size() > 0)
-            aruco::estimatePoseSingleMarkers(corners, markerLength, camMatrix, distCoeffs, rvecs,
+            aruco::estimatePoseSingleMarkers(corners, is.markerLength, camMatrix, distCoeffs, rvecs,
                                              tvecs);
 
         double currentTime = ((double) getTickCount() - tick) / getTickFrequency();
@@ -261,7 +302,7 @@ int main(int argc, char* argv[]) {
                 int numIDs = ids.size();
 
                 for(int i = 0; i < numIDs; i++) {
-                    float length = markerLength * 0.5f;
+                    float length = is.markerLength * 0.5f;
 
                     aruco::drawAxis(imageCopy, camMatrix, distCoeffs, rvecs[i], tvecs[i], length);
 
@@ -329,7 +370,7 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        if(showRejected && rejected.size() > 0)
+        if(is.showRejected && rejected.size() > 0)
             aruco::drawDetectedMarkers(imageCopy, rejected, noArray(), Scalar(100, 0, 255));
 
         imshow("out", imageCopy);

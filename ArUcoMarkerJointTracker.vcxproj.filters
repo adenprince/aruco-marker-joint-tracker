@@ -84,4 +84,7 @@
       <Filter>Header Files\gl3w</Filter>
     </ClInclude>
   </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
+  </ItemGroup>
 </Project>
