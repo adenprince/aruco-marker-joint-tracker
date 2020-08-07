@@ -146,6 +146,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="interface.cpp" />
     <ClCompile Include="libs\gl3w\GL\gl3w.c" />
     <ClCompile Include="libs\imgui\imgui.cpp" />
     <ClCompile Include="libs\imgui\imgui_demo.cpp" />
@@ -158,6 +159,7 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="interface.h" />
     <ClInclude Include="libs\gl3w\GL\gl3w.h" />
     <ClInclude Include="libs\gl3w\GL\glcorearb.h" />
     <ClInclude Include="libs\imgui\imconfig.h" />

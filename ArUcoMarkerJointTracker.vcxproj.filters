@@ -51,6 +51,9 @@
     <ClCompile Include="libs\gl3w\GL\gl3w.c">
       <Filter>Source Files\gl3w</Filter>
     </ClCompile>
+    <ClCompile Include="interface.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="libs\imgui\imconfig.h">
@@ -82,6 +85,9 @@
     </ClInclude>
     <ClInclude Include="libs\gl3w\GL\glcorearb.h">
       <Filter>Header Files\gl3w</Filter>
+    </ClInclude>
+    <ClInclude Include="interface.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
