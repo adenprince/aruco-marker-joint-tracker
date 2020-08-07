@@ -15,6 +15,7 @@ using namespace cv;
 namespace {
     const char* about = "Basic marker detection";
     const char* keys =
+        "{h        |       | Display help information }"
         "{d        |       | dictionary: DICT_4X4_50=0, DICT_4X4_100=1, DICT_4X4_250=2,"
         "DICT_4X4_1000=3, DICT_5X5_50=4, DICT_5X5_100=5, DICT_5X5_250=6, DICT_5X5_1000=7, "
         "DICT_6X6_50=8, DICT_6X6_100=9, DICT_6X6_250=10, DICT_6X6_1000=11, DICT_7X7_50=12,"
@@ -111,6 +112,11 @@ int main(int argc, char* argv[]) {
         }
     }
     else {
+        if(parser.has("h")) {
+            parser.printMessage();
+            return 0;
+        }
+
         getOptionsCLI(is, parser);
     }
     
@@ -165,10 +171,10 @@ int main(int argc, char* argv[]) {
     outputFile.open(is.outputFilename);
 
     if(outputFile.is_open()) {
-        cout << "File " << is.outputFilename << " opened successfully" << endl;
+        cout << "File \"" << is.outputFilename << "\" opened successfully" << endl;
     }
     else {
-        cerr << "File " << is.outputFilename << " failed to open" << endl;
+        cerr << "File \"" << is.outputFilename << "\" failed to open" << endl;
         return 1;
     }
 

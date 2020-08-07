@@ -41,7 +41,7 @@ string getIndexedFilename() {
 }
 
 // Get program options from the command line
-void getOptionsCLI(InputSettings& is, cv::CommandLineParser& parser) {
+void getOptionsCLI(InputSettings& is, CommandLineParser& parser) {
     is.dictionary = parser.get<int>("d");
     is.showRejected = parser.has("r");
     is.markerLength = parser.get<float>("l");
@@ -81,8 +81,9 @@ static void glfw_error_callback(int error, const char* description) {
 }
 
 // Create and handle startup GUI widgets
-int startupGUIWidgets(InputSettings& is) {
-    ImGui::Begin("Options", (bool*) 0, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize);
+int startupGUIWidgets(InputSettings& is, string& errorText) {
+    // 0: Continue running startup GUI, 1: Start data collection, -1: Quit program
+    int startCollection = 0;
 
     static bool hasRefinement = false;
     ImGui::Checkbox("Override corner refinement from config file", &hasRefinement);
@@ -168,6 +169,9 @@ int startupGUIWidgets(InputSettings& is) {
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(ImColor::HSV(0.4f, 0.8f, 0.8f)));
 
     if(ImGui::Button("Start")) {
+        // Reset error text
+        errorText = "";
+
         is.dictionary = dictionaryIndex;
         is.cornerRefinement = refinementIndex;
         is.hasRefinement = hasRefinement;
@@ -178,7 +182,53 @@ int startupGUIWidgets(InputSettings& is) {
         is.calibFilename = calibFilename;
         is.detectorFilename = detectorFilename;
         is.inputFilename = inputFilename;
-        return 1;
+
+        // 1 is returned and data collection starts if there are no errors
+        startCollection = 1;
+
+        // Check for errors
+        if(readFromFile == false && cameraID < 0) {
+            errorText += "ERROR: Camera ID cannot be negative\n";
+            startCollection = 0;
+        }
+
+        if(collectionRate < 0) {
+            errorText += "ERROR: Data collection rate cannot be negative\n";
+            startCollection = 0;
+        }
+
+        if(markerLength <= 0) {
+            errorText += "ERROR: Marker length must be positive\n";
+            startCollection = 0;
+        }
+
+        if(is.calibFilename.find_first_not_of(' ') != string::npos &&
+           fileExists(is.calibFilename) == false) {
+            errorText += "ERROR: Calibration file \"" + is.calibFilename + "\" not found\n";
+            startCollection = 0;
+        }
+
+        if(is.detectorFilename.find_first_not_of(' ') != string::npos &&
+           fileExists(is.detectorFilename) == false) {
+            errorText += "ERROR: Detector parameters file \"" + is.detectorFilename + "\" not found\n";
+            startCollection = 0;
+        }
+
+        if(readFromFile && fileExists(is.inputFilename) == false) {
+            errorText += "ERROR: Input file \"" + is.inputFilename + "\" not found\n";
+            startCollection = 0;
+        }
+
+        // Check if there are no non-space characters in the output filename
+        if(is.outputFilename.find_first_not_of(' ') == string::npos) {
+            errorText += "ERROR: Output filename is empty\n";
+            startCollection = 0;
+        }
+
+        if(fileExists(is.outputFilename)) {
+            errorText += "ERROR: Output file \"" + is.outputFilename + "\" already exists\n";
+            startCollection = 0;
+        }
     }
 
     ImGui::SameLine();
@@ -188,14 +238,16 @@ int startupGUIWidgets(InputSettings& is) {
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(ImColor::HSV(0.0f, 0.8f, 0.8f)));
 
     if(ImGui::Button("Quit")) {
-        return -1;
+        startCollection = -1;
     }
 
-    ImGui::PopStyleColor(6);
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.3f, 0.0f, 1.0f));
+    ImGui::TextWrapped(errorText.c_str());
 
-    ImGui::End();
+    // Remove style settings
+    ImGui::PopStyleColor(7);
 
-    return 0;
+    return startCollection;
 }
 
 // Get program options from a GUI
@@ -204,6 +256,8 @@ int getOptionsGUI(InputSettings& is) {
 
     // 0: Continue running startup GUI, 1: Start data collection, -1: Quit program
     int startCollection = 0;
+
+    string errorText = "";
 
     is.outputFilename = getIndexedFilename();
 
@@ -218,7 +272,7 @@ int getOptionsGUI(InputSettings& is) {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
 
     // Create window with graphics context
-    GLFWwindow* window = glfwCreateWindow(900, 540, "Program Options", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(910, 600, "Program Options", NULL, NULL);
     if(window == NULL)
         return 1;
     glfwMakeContextCurrent(window);
@@ -269,7 +323,9 @@ int getOptionsGUI(InputSettings& is) {
         ImGui::SetNextWindowPos(ImVec2(0, 0));
         ImGui::SetNextWindowSize(io.DisplaySize);
 
-        startCollection = startupGUIWidgets(is);
+        ImGui::Begin("Options", (bool*) 0, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize);
+        startCollection = startupGUIWidgets(is, errorText);
+        ImGui::End();
 
         // Rendering
         ImGui::Render();
