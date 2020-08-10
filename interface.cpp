@@ -74,6 +74,8 @@ void getOptionsCLI(InputSettings& is, CommandLineParser& parser) {
     if(parser.has("c")) {
         is.calibFilename = parser.get<string>("c");
     }
+
+    is.numJoints = parser.get<int>("j");
 }
 
 static void glfw_error_callback(int error, const char* description) {
@@ -130,6 +132,9 @@ int startupGUIWidgets(InputSettings& is, string& errorText) {
     static int collectionRate = 10;
     ImGui::InputInt("Data collections per second", &collectionRate);
 
+    static int numJoints = 1;
+    ImGui::InputInt("Number of joints", &numJoints);
+
     static float markerLength = 0.053f;
     ImGui::InputFloat("Marker length in meters", &markerLength);
 
@@ -178,6 +183,7 @@ int startupGUIWidgets(InputSettings& is, string& errorText) {
         is.showRejected = showRejected;
         is.cameraID = cameraID;
         is.collectionRate = collectionRate;
+        is.numJoints = numJoints;
         is.markerLength = markerLength;
         is.calibFilename = calibFilename;
         is.detectorFilename = detectorFilename;
@@ -194,6 +200,11 @@ int startupGUIWidgets(InputSettings& is, string& errorText) {
 
         if(collectionRate < 0) {
             errorText += "ERROR: Data collection rate cannot be negative\n";
+            startCollection = 0;
+        }
+
+        if(numJoints < 0) {
+            errorText += "ERROR: Number of joints cannot be negative\n";
             startCollection = 0;
         }
 
@@ -272,7 +283,7 @@ int getOptionsGUI(InputSettings& is) {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
 
     // Create window with graphics context
-    GLFWwindow* window = glfwCreateWindow(910, 600, "Program Options", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(910, 650, "Program Options", NULL, NULL);
     if(window == NULL)
         return 1;
     glfwMakeContextCurrent(window);

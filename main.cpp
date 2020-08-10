@@ -30,16 +30,17 @@ namespace {
         "{refine   |       | Corner refinement: CORNER_REFINE_NONE=0, CORNER_REFINE_SUBPIX=1,"
         "CORNER_REFINE_CONTOUR=2, CORNER_REFINE_APRILTAG=3}"
         "{o        |       | Joint angle output filename, if none, filename is automatically indexed }"
-        "{cr       |       | Number of times per second to collect joint angle data }";
+        "{cr       |       | Number of times per second to collect joint angle data }"
+        "{j        | 1     | Number of joints to collect angle data for }";
 }
 
 
 
 // Get the angle between two vectors using three passed points
-float getJointAngle(vector<Vec3f>& jointPoints) {
+float getJointAngle(vector<Vec3f>& jointPoints, size_t startIndex) {
     // The second point is the vertex of the angle
-    Vec3f v1 = jointPoints.at(0) - jointPoints.at(1);
-    Vec3f v2 = jointPoints.at(2) - jointPoints.at(1);
+    Vec3f v1 = jointPoints.at(startIndex) - jointPoints.at(startIndex + 1);
+    Vec3f v2 = jointPoints.at(startIndex + 2) - jointPoints.at(startIndex + 1);
     float angle = acosf(v1.dot(v2) / (norm(v1) * norm(v2))) * 180.0f / (float) CV_PI;
 
     return angle;
@@ -178,7 +179,13 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    outputFile << "Total Time,Joint Angle" << endl;
+    outputFile << "Total Time";
+
+    for(int i = 1; i <= is.numJoints; ++i) {
+        outputFile << ",Joint " << i << " Angle";
+    }
+
+    outputFile << endl;
 
     VideoCapture inputVideo;
     int waitTime;
@@ -215,11 +222,14 @@ int main(int argc, char* argv[]) {
 
         double currentTime = ((double) getTickCount() - tick) / getTickFrequency();
         totalTime += currentTime;
-        totalIterations++;
+        ++totalIterations;
         if(totalIterations % 30 == 0) {
             cout << "Detection Time = " << currentTime * 1000 << " ms "
                  << "(Mean = " << 1000 * totalTime / double(totalIterations) << " ms)" << endl;
         }
+
+        vector<float> jointAngles((size_t) is.numJoints);
+        vector<int> pointsDetected((size_t) is.numJoints);
 
         // draw results
         image.copyTo(imageCopy);
@@ -227,13 +237,11 @@ int main(int argc, char* argv[]) {
             aruco::drawDetectedMarkers(imageCopy, corners, ids);
 
             if(estimatePose) {
-                vector<Vec3f> jointPoints(3);
-                vector<Point2f> jointImagePoints(3);
-                float jointAngle = -1.0f;
-                int pointsDetected = 0;
+                vector<Vec3f> jointPoints((size_t) is.numJoints + 2);
+                vector<Point2f> jointImagePoints((size_t) is.numJoints + 2);
                 int numIDs = ids.size();
 
-                for(int i = 0; i < numIDs; i++) {
+                for(int i = 0; i < numIDs; ++i) {
                     float length = is.markerLength * 0.5f;
 
                     aruco::drawAxis(imageCopy, camMatrix, distCoeffs, rvecs[i], tvecs[i], length);
@@ -249,57 +257,71 @@ int main(int argc, char* argv[]) {
 
                     int curID = ids.at(i);
 
-                    if(curID < 3) {
+                    if(curID < is.numJoints + 2) {
                         jointPoints.at(curID) = tvecs[i];
                         jointImagePoints.at(curID) = imagePoints[0];
-                        pointsDetected++;
+
+                        for(int j = curID - 2; j <= curID; ++j) {
+                            if(j >= 0 && j < is.numJoints) {
+                                ++pointsDetected[j];
+                            }
+                        }
                     }
                 }
 
-                if(pointsDetected == 3) {
-                    jointAngle = getJointAngle(jointPoints);
+                for(size_t i = 0; i < is.numJoints; ++i) {
+                    if(pointsDetected[i] == 3) {
+                        jointAngles[i] = getJointAngle(jointPoints, i);
 
-                    // Draw joint angle
-                    line(imageCopy, jointImagePoints[1], jointImagePoints[0], Scalar(0, 0, 0), 2);
-                    line(imageCopy, jointImagePoints[1], jointImagePoints[2], Scalar(0, 0, 0), 2);
-                    
-                    // Get each line of the joint angle
-                    Vec2f v1 = jointImagePoints[0] - jointImagePoints[1];
-                    Vec2f v2 = jointImagePoints[2] - jointImagePoints[1];
-                    
-                    // Get point in the middle of the angle
-                    Vec2f bisection = (normalize(v1) + normalize(v2)) * 25.0f;
-                    Point2f p;
-                    p.x = bisection[0] + jointImagePoints[1].x;
-                    p.y = bisection[1] + jointImagePoints[1].y;
+                        // Draw joint angle
+                        if(i == 0 || (i > 0 && pointsDetected[i - 1] != 3)) {
+                            // Draw first line if it has not been drawn for a previous angle
+                            line(imageCopy, jointImagePoints[i + 1], jointImagePoints[i], Scalar(0, 0, 0), 2);
+                        }
+                        line(imageCopy, jointImagePoints[i + 1], jointImagePoints[i + 2], Scalar(0, 0, 0), 2);
 
-                    // Get rounded angle value as a string
-                    string displayText = to_string((int) round(jointAngle));
-                    
-                    // Center angle text
-                    int baseline = 0;
-                    Size textSize = getTextSize(displayText, 0, 0.5, 2, &baseline);
-                    p.x -= textSize.width / 2.0f;
-                    p.y -= textSize.height / 2.0f;
+                        // Get each line of the joint angle
+                        Vec2f v1 = jointImagePoints[i] - jointImagePoints[i + 1];
+                        Vec2f v2 = jointImagePoints[i + 2] - jointImagePoints[i + 1];
 
-                    // Display angle text centered in the angle
-                    putText(imageCopy, displayText, p, 0, 0.5, Scalar(255, 255, 255), 2);
-                }
+                        // Get point in the middle of the angle
+                        Vec2f bisection = (normalize(v1) + normalize(v2)) * 25.0f;
+                        Point2f p;
+                        p.x = bisection[0] + jointImagePoints[i + 1].x;
+                        p.y = bisection[1] + jointImagePoints[i + 1].y;
 
-                double curTime = ((double) getTickCount() - startTime) / getTickFrequency();
+                        // Get rounded angle value as a string
+                        string displayText = to_string((int) round(jointAngles[i]));
 
-                // Write data to file if enough time has passed or first iteration
-                if(curTime - prevCollectionTime >= collectionTime || totalIterations == 1) {
-                    if(pointsDetected == 3) {
-                        outputFile << curTime << "," << jointAngle << endl;
+                        // Center angle text
+                        int baseline = 0;
+                        Size textSize = getTextSize(displayText, 0, 0.5, 2, &baseline);
+                        p.x -= textSize.width / 2.0f;
+                        p.y -= textSize.height / 2.0f;
+
+                        // Display angle text centered in the angle
+                        putText(imageCopy, displayText, p, 0, 0.5, Scalar(255, 255, 255), 2);
                     }
-                    else {
-                        outputFile << curTime << "," << endl;
-                    }
-
-                    prevCollectionTime = curTime;
                 }
             }
+        }
+
+        double curTime = ((double) getTickCount() - startTime) / getTickFrequency();
+
+        // Write data to file if enough time has passed or first iteration
+        if(curTime - prevCollectionTime >= collectionTime || totalIterations == 1) {
+            outputFile << curTime;
+
+            for(int i = 0; i < is.numJoints; ++i) {
+                outputFile << ",";
+                if(pointsDetected[i] == 3) {
+                    outputFile << jointAngles[i];
+                }
+            }
+            
+            outputFile << endl;
+
+            prevCollectionTime = curTime;
         }
 
         if(is.showRejected && rejected.size() > 0)

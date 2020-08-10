@@ -9,6 +9,7 @@ struct InputSettings {
     bool showRejected = false;
     int cameraID = 0;
     int collectionRate = 0;
+    int numJoints = 0;
     float markerLength = 0.0f;
     std::string calibFilename;
     std::string detectorFilename;
@@ -18,5 +19,4 @@ struct InputSettings {
 
 bool fileExists(std::string filename);
 void getOptionsCLI(InputSettings& is, cv::CommandLineParser& parser);
-int startupGUIWidgets(InputSettings& is);
 int getOptionsGUI(InputSettings& is);
