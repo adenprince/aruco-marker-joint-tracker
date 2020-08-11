@@ -48,6 +48,50 @@ float getJointAngle(vector<Vec3f>& jointPoints, size_t startIndex) {
 
 
 
+// Function from OpenCV library
+// Converts a given Rotation Matrix to Euler angles
+// Convention used is X-Y-Z Tait-Bryan angles
+// Reference code implementation:
+// https://www.euclideanspace.com/maths/geometry/rotations/conversions/matrixToEuler/index.htm
+Vec3f rot2euler(const cv::Mat& rotationMatrix) {
+    Vec3f euler;
+
+    double m00 = rotationMatrix.at<double>(0, 0);
+    double m02 = rotationMatrix.at<double>(0, 2);
+    double m10 = rotationMatrix.at<double>(1, 0);
+    double m11 = rotationMatrix.at<double>(1, 1);
+    double m12 = rotationMatrix.at<double>(1, 2);
+    double m20 = rotationMatrix.at<double>(2, 0);
+    double m22 = rotationMatrix.at<double>(2, 2);
+
+    double bank, attitude, heading;
+
+    // Assuming the angles are in radians.
+    if(m10 > 0.998) { // singularity at north pole
+        bank = 0;
+        attitude = CV_PI / 2;
+        heading = atan2(m02, m22);
+    }
+    else if(m10 < -0.998) { // singularity at south pole
+        bank = 0;
+        attitude = -CV_PI / 2;
+        heading = atan2(m02, m22);
+    }
+    else {
+        bank = atan2(-m12, m11);
+        attitude = asin(m10);
+        heading = atan2(-m20, m00);
+    }
+
+    euler[0] = bank * 180.0f / (float) CV_PI;
+    euler[1] = heading * 180.0f / (float) CV_PI;
+    euler[2] = attitude * 180.0f / (float) CV_PI;
+
+    return euler;
+}
+
+
+
 /**
  */
 static bool readCameraParameters(string filename, Mat& camMatrix, Mat& distCoeffs) {
@@ -185,6 +229,10 @@ int main(int argc, char* argv[]) {
         outputFile << ",Joint " << i << " Angle";
     }
 
+    for(int i = 0; i < is.numJoints + 2; ++i) {
+        outputFile << ",Marker " << i << " Angle";
+    }
+
     outputFile << endl;
 
     VideoCapture inputVideo;
@@ -229,7 +277,9 @@ int main(int argc, char* argv[]) {
         }
 
         vector<float> jointAngles((size_t) is.numJoints);
-        vector<int> pointsDetected((size_t) is.numJoints);
+        vector<bool> anglesDetected((size_t) is.numJoints);
+        vector<bool> pointsDetected((size_t) is.numJoints + 2);
+        vector<Vec3f> markerAngles((size_t) is.numJoints + 2);
 
         // draw results
         image.copyTo(imageCopy);
@@ -260,21 +310,22 @@ int main(int argc, char* argv[]) {
                     if(curID < is.numJoints + 2) {
                         jointPoints.at(curID) = tvecs[i];
                         jointImagePoints.at(curID) = imagePoints[0];
+                        pointsDetected[curID] = true;
 
-                        for(int j = curID - 2; j <= curID; ++j) {
-                            if(j >= 0 && j < is.numJoints) {
-                                ++pointsDetected[j];
-                            }
-                        }
+                        Mat rotationMatrix;
+                        Rodrigues(rvecs[i], rotationMatrix);
+                        markerAngles[curID] = rot2euler(rotationMatrix);
                     }
                 }
 
                 for(size_t i = 0; i < is.numJoints; ++i) {
-                    if(pointsDetected[i] == 3) {
+                    anglesDetected[i] = (pointsDetected[i] && pointsDetected[i + 1] && pointsDetected[i + 2]);
+
+                    if(anglesDetected[i]) {
                         jointAngles[i] = getJointAngle(jointPoints, i);
 
                         // Draw joint angle
-                        if(i == 0 || (i > 0 && pointsDetected[i - 1] != 3)) {
+                        if(i == 0 || anglesDetected[i - 1] == false) {
                             // Draw first line if it has not been drawn for a previous angle
                             line(imageCopy, jointImagePoints[i + 1], jointImagePoints[i], Scalar(0, 0, 0), 2);
                         }
@@ -314,11 +365,19 @@ int main(int argc, char* argv[]) {
 
             for(int i = 0; i < is.numJoints; ++i) {
                 outputFile << ",";
-                if(pointsDetected[i] == 3) {
+                if(anglesDetected[i]) {
                     outputFile << jointAngles[i];
                 }
             }
-            
+
+            for(int i = 0; i < is.numJoints + 2; ++i) {
+                outputFile << ",";
+                if(pointsDetected[i]) {
+                    outputFile << "\"" << markerAngles[i][0] << "," << markerAngles[i][1]
+                               << "," << markerAngles[i][2] << "\"";
+                }
+            }
+
             outputFile << endl;
 
             prevCollectionTime = curTime;
