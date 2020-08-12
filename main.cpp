@@ -1,5 +1,12 @@
-// ArUco marker detection code obtained from: https://github.com/opencv/opencv_contrib/blob/master/modules/aruco/samples/detect_markers.cpp
-
+/* Aden Prince
+ * HiMER Lab at U. of Illinois, Chicago
+ * ArUco Marker Joint Tracker
+ * 
+ * main.cpp
+ * Gets inputs settings and runs data collection.
+ * 
+ * ArUco marker detection code obtained from: https://github.com/opencv/opencv_contrib/blob/master/modules/aruco/samples/detect_markers.cpp
+ */
 
 #include "interface.h"
 #include <opencv2/highgui.hpp>
@@ -33,20 +40,6 @@ namespace {
         "{cr       |       | Number of times per second to collect joint angle data }"
         "{j        | 1     | Number of joints to collect angle data for }";
 }
-
-
-
-// Get the angle between two vectors using three passed points
-float getJointAngle(vector<Vec3f>& jointPoints, size_t startIndex) {
-    // The second point is the vertex of the angle
-    Vec3f v1 = jointPoints.at(startIndex) - jointPoints.at(startIndex + 1);
-    Vec3f v2 = jointPoints.at(startIndex + 2) - jointPoints.at(startIndex + 1);
-    float angle = acosf(v1.dot(v2) / (norm(v1) * norm(v2))) * 180.0f / (float) CV_PI;
-
-    return angle;
-}
-
-
 
 // Function from OpenCV library
 // Converts a given Rotation Matrix to Euler angles
@@ -90,10 +83,17 @@ Vec3f rot2euler(const cv::Mat& rotationMatrix) {
     return euler;
 }
 
+// Get the angle between two vectors using three passed points
+float getJointAngle(vector<Vec3f>& jointPoints, size_t startIndex) {
+    // The second point is the vertex of the angle
+    Vec3f v1 = jointPoints.at(startIndex) - jointPoints.at(startIndex + 1);
+    Vec3f v2 = jointPoints.at(startIndex + 2) - jointPoints.at(startIndex + 1);
+    float angle = acosf(v1.dot(v2) / (norm(v1) * norm(v2))) * 180.0f / (float) CV_PI;
 
+    return angle;
+}
 
-/**
- */
+// Read camera parameters from a given file and store them in passed variables
 static bool readCameraParameters(string filename, Mat& camMatrix, Mat& distCoeffs) {
     FileStorage fs(filename, FileStorage::READ);
     if(!fs.isOpened())
@@ -103,10 +103,7 @@ static bool readCameraParameters(string filename, Mat& camMatrix, Mat& distCoeff
     return true;
 }
 
-
-
-/**
- */
+// Read detector parameters from a given file and store them in passed variables
 static bool readDetectorParameters(string filename, Ptr<aruco::DetectorParameters>& params) {
     FileStorage fs(filename, FileStorage::READ);
     if(!fs.isOpened())
@@ -134,16 +131,13 @@ static bool readDetectorParameters(string filename, Ptr<aruco::DetectorParameter
     return true;
 }
 
-
-
-/**
- */
 int main(int argc, char* argv[]) {
     InputSettings is;
 
     CommandLineParser parser(argc, argv, keys);
     parser.about(about);
 
+    // Run startup GUI if no command-line options are given
     if(argc < 2) {
         int resultGUI = getOptionsGUI(is);
 
@@ -157,6 +151,7 @@ int main(int argc, char* argv[]) {
         }
     }
     else {
+        // Display program info if there is a -h flag
         if(parser.has("h")) {
             parser.printMessage();
             return 0;
@@ -165,8 +160,10 @@ int main(int argc, char* argv[]) {
         getOptionsCLI(is, parser);
     }
     
+    // Estimate marker pose if a camera calibration file is given
     bool estimatePose = (is.calibFilename != "");
 
+    // Read detector parameters file
     Ptr<aruco::DetectorParameters> detectorParams = aruco::DetectorParameters::create();
     if(is.detectorFilename != "") {
         bool readOk = readDetectorParameters(is.detectorFilename, detectorParams);
@@ -177,7 +174,7 @@ int main(int argc, char* argv[]) {
     }
 
     if(is.hasRefinement) {
-        //override cornerRefinementMethod read from config file
+        // Override cornerRefinementMethod read from config file
         detectorParams->cornerRefinementMethod = is.cornerRefinement;
     }
     cout << "Corner refinement method (0: None, 1: Subpixel, 2:contour, 3: AprilTag 2): " << detectorParams->cornerRefinementMethod << endl;
@@ -195,6 +192,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    // Check for command-line option errors
     if(!parser.check()) {
         parser.printErrors();
         return 1;
@@ -203,6 +201,7 @@ int main(int argc, char* argv[]) {
     Ptr<aruco::Dictionary> dictionary =
         aruco::getPredefinedDictionary(aruco::PREDEFINED_DICTIONARY_NAME(is.dictionary));
 
+    // Read camera calibration file
     Mat camMatrix, distCoeffs;
     if(estimatePose) {
         bool readOk = readCameraParameters(is.calibFilename, camMatrix, distCoeffs);
@@ -223,30 +222,26 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    // Print column titles to data output file
     outputFile << "Total Time";
-
     for(int i = 1; i <= is.numJoints; ++i) {
         outputFile << ",Joint " << i << " Angle";
     }
-
     for(int i = 0; i < is.numJoints + 2; ++i) {
-        outputFile << ",Marker " << i << " Angle";
+        outputFile << ",Marker " << i << " Rotation";
     }
-
     outputFile << endl;
 
+    // Get video input from either a file or a camera
     VideoCapture inputVideo;
-    int waitTime;
     if(is.inputFilename != "") {
         inputVideo.open(is.inputFilename);
-        waitTime = 50;
     }
     else {
         inputVideo.open(is.cameraID);
-        waitTime = 10;
     }
 
-    double totalTime = 0;
+    double totalDetectionTime = 0;
     int totalIterations = 0;
 
     double prevCollectionTime = 0;
@@ -262,18 +257,21 @@ int main(int argc, char* argv[]) {
         vector<vector<Point2f>> corners, rejected;
         vector<Vec3d> rvecs, tvecs;
 
-        // detect markers and estimate pose
+        // Detect markers and estimate pose
         aruco::detectMarkers(image, dictionary, corners, ids, detectorParams, rejected);
         if(estimatePose && ids.size() > 0)
             aruco::estimatePoseSingleMarkers(corners, is.markerLength, camMatrix, distCoeffs, rvecs,
                                              tvecs);
 
         double currentTime = ((double) getTickCount() - tick) / getTickFrequency();
-        totalTime += currentTime;
+        totalDetectionTime += currentTime;
         ++totalIterations;
+
+        // Output detection time info every 30 loop iterations
         if(totalIterations % 30 == 0) {
             cout << "Detection Time = " << currentTime * 1000 << " ms "
-                 << "(Mean = " << 1000 * totalTime / double(totalIterations) << " ms)" << endl;
+                 << "(Mean = " << 1000 * totalDetectionTime / double(totalIterations)
+                 << " ms)" << endl;
         }
 
         vector<float> jointAngles((size_t) is.numJoints);
@@ -305,11 +303,12 @@ int main(int argc, char* argv[]) {
                     vector<Point2f> imagePoints;
                     projectPoints(axesPoints, rvecs[i], tvecs[i], camMatrix, distCoeffs, imagePoints);
 
-                    int curID = ids.at(i);
+                    int curID = ids[i];
 
+                    // Collect marker data if its ID is in the correct range
                     if(curID < is.numJoints + 2) {
-                        jointPoints.at(curID) = tvecs[i];
-                        jointImagePoints.at(curID) = imagePoints[0];
+                        jointPoints[curID] = tvecs[i];
+                        jointImagePoints[curID] = imagePoints[0];
                         pointsDetected[curID] = true;
 
                         Mat rotationMatrix;
@@ -318,14 +317,16 @@ int main(int argc, char* argv[]) {
                     }
                 }
 
+                // Draw each joint angle
                 for(size_t i = 0; i < is.numJoints; ++i) {
+                    // Check that the points needed for the current angle are detected
                     anglesDetected[i] = (pointsDetected[i] && pointsDetected[i + 1] && pointsDetected[i + 2]);
 
                     if(anglesDetected[i]) {
                         jointAngles[i] = getJointAngle(jointPoints, i);
 
-                        // Draw joint angle
-                        if(i == 0 || anglesDetected[i - 1] == false) {
+                        // Draw joint angle lines
+                        if(i == 0 || !anglesDetected[i - 1]) {
                             // Draw first line if it has not been drawn for a previous angle
                             line(imageCopy, jointImagePoints[i + 1], jointImagePoints[i], Scalar(0, 0, 0), 2);
                         }
@@ -357,12 +358,14 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        double curTime = ((double) getTickCount() - startTime) / getTickFrequency();
+        currentTime = ((double) getTickCount() - startTime) / getTickFrequency();
 
         // Write data to file if enough time has passed or first iteration
-        if(curTime - prevCollectionTime >= collectionTime || totalIterations == 1) {
-            outputFile << curTime;
+        if(currentTime - prevCollectionTime >= collectionTime || totalIterations == 1) {
+            // Write program run time
+            outputFile << currentTime;
 
+            // Write joint angle data
             for(int i = 0; i < is.numJoints; ++i) {
                 outputFile << ",";
                 if(anglesDetected[i]) {
@@ -370,6 +373,7 @@ int main(int argc, char* argv[]) {
                 }
             }
 
+            // Write marker rotation data
             for(int i = 0; i < is.numJoints + 2; ++i) {
                 outputFile << ",";
                 if(pointsDetected[i]) {
@@ -380,14 +384,18 @@ int main(int argc, char* argv[]) {
 
             outputFile << endl;
 
-            prevCollectionTime = curTime;
+            prevCollectionTime = currentTime;
         }
 
+        // Draw rejected marker candidates if needed
         if(is.showRejected && rejected.size() > 0)
             aruco::drawDetectedMarkers(imageCopy, rejected, noArray(), Scalar(100, 0, 255));
 
+        // Show camera view window with drawn information
         imshow("Camera View", imageCopy);
-        char key = (char) waitKey(waitTime);
+
+        // Get keyboard input and stop program when the Esc key is pressed
+        char key = (char) waitKey(1);
         if(key == 27) break;
     }
 

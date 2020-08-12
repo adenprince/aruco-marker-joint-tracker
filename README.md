@@ -1,6 +1,6 @@
 # ArUco Marker Joint Tracker
 
-This program uses ArUco markers to track joints, such as on a robotic arm, and write their angle data to a CSV (comma-separated values) file. Video data can come from a camera or a pre-recorded video file.
+This program uses ArUco markers to track joints, such as on a robotic arm, and write their angle data to a CSV (comma-separated values) file. Collection time and marker rotation data are also collected. Video data can come from a camera or a pre-recorded video file.
 
 ## Usage
 

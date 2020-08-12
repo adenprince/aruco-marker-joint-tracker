@@ -1,3 +1,14 @@
+/* Aden Prince
+ * HiMER Lab at U. of Illinois, Chicago
+ * ArUco Marker Joint Tracker
+ * 
+ * interface.cpp
+ * Contains functions for getting program options and displaying program usage.
+ * 
+ * ImGui sample code obtained from: https://github.com/ocornut/imgui/blob/master/examples/example_win32_directx11/main.cpp
+ * ImGui font scaling code obtained from: https://github.com/microsoft/Azure-Kinect-Sensor-SDK/blob/develop/tools/k4aviewer/k4aviewer.cpp
+ */
+
 #include "interface.h"
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
@@ -42,10 +53,12 @@ string getIndexedFilename() {
 
 // Get program options from the command line
 void getOptionsCLI(InputSettings& is, CommandLineParser& parser) {
+    // Getting an option that does not exist throws an error
     is.dictionary = parser.get<int>("d");
     is.showRejected = parser.has("r");
     is.markerLength = parser.get<float>("l");
 
+    // Check if there is a --dp flag before getting its value (flag is optional)
     if(parser.has("dp")) {
         is.detectorFilename = parser.get<string>("dp");
     }
@@ -61,6 +74,7 @@ void getOptionsCLI(InputSettings& is, CommandLineParser& parser) {
         is.inputFilename = parser.get<string>("v");
     }
     else {
+        // Get collection rate if not collecting data from a video file
         is.collectionRate = parser.get<int>("cr");
     }
 
@@ -68,6 +82,7 @@ void getOptionsCLI(InputSettings& is, CommandLineParser& parser) {
         is.outputFilename = parser.get<string>("o");
     }
     else {
+        // Set output filename to default if not given in the command line
         is.outputFilename = getIndexedFilename();
     }
 
@@ -78,6 +93,7 @@ void getOptionsCLI(InputSettings& is, CommandLineParser& parser) {
     is.numJoints = parser.get<int>("j");
 }
 
+// Display an error message when a GLFW error occurs
 static void glfw_error_callback(int error, const char* description) {
     fprintf(stderr, "Glfw Error %d: %s\n", error, description);
 }
@@ -100,13 +116,13 @@ int startupGUIWidgets(InputSettings& is, string& errorText) {
                                        "CORNER_REFINE_CONTOUR", "CORNER_REFINE_APRILTAG"};
 
     // Disable corner refinement input unless overriding config file
-    if(hasRefinement == false) {
+    if(!hasRefinement) {
         ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
         ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.5f);
     }
     static int refinementIndex = 0; // Default is no corner refinement
     ImGui::Combo("Corner refinement", &refinementIndex, cornerRefinements, IM_ARRAYSIZE(cornerRefinements));
-    if(hasRefinement == false) {
+    if(!hasRefinement) {
         ImGui::PopItemFlag();
         ImGui::PopStyleVar();
     }
@@ -145,13 +161,13 @@ int startupGUIWidgets(InputSettings& is, string& errorText) {
     ImGui::InputText("Detector parameters filename", detectorFilename, IM_ARRAYSIZE(detectorFilename));
 
     // Disable input filename text input if not collecting data from file
-    if(readFromFile == false) {
+    if(!readFromFile) {
         ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
         ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.5f);
     }
     static char inputFilename[128] = "";
     ImGui::InputText("Input filename", inputFilename, IM_ARRAYSIZE(inputFilename));
-    if(readFromFile == false) {
+    if(!readFromFile) {
         ImGui::PopItemFlag();
         ImGui::PopStyleVar();
     }
@@ -169,6 +185,7 @@ int startupGUIWidgets(InputSettings& is, string& errorText) {
     // Update output filename in input settings
     is.outputFilename = outputFilename;
 
+    // Make Start button green
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(ImColor::HSV(0.4f, 0.6f, 0.6f)));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(ImColor::HSV(0.4f, 0.7f, 0.7f)));
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(ImColor::HSV(0.4f, 0.8f, 0.8f)));
@@ -177,6 +194,7 @@ int startupGUIWidgets(InputSettings& is, string& errorText) {
         // Reset error text
         errorText = "";
 
+        // Update values in inputSettings
         is.dictionary = dictionaryIndex;
         is.cornerRefinement = refinementIndex;
         is.hasRefinement = hasRefinement;
@@ -193,7 +211,7 @@ int startupGUIWidgets(InputSettings& is, string& errorText) {
         startCollection = 1;
 
         // Check for errors
-        if(readFromFile == false && cameraID < 0) {
+        if(!readFromFile && cameraID < 0) {
             errorText += "ERROR: Camera ID cannot be negative\n";
             startCollection = 0;
         }
@@ -213,24 +231,24 @@ int startupGUIWidgets(InputSettings& is, string& errorText) {
             startCollection = 0;
         }
 
+        // Check if there are no non-space characters in the calibration filename
         if(is.calibFilename.find_first_not_of(' ') != string::npos &&
-           fileExists(is.calibFilename) == false) {
+           !fileExists(is.calibFilename)) {
             errorText += "ERROR: Calibration file \"" + is.calibFilename + "\" not found\n";
             startCollection = 0;
         }
 
         if(is.detectorFilename.find_first_not_of(' ') != string::npos &&
-           fileExists(is.detectorFilename) == false) {
+           !fileExists(is.detectorFilename)) {
             errorText += "ERROR: Detector parameters file \"" + is.detectorFilename + "\" not found\n";
             startCollection = 0;
         }
 
-        if(readFromFile && fileExists(is.inputFilename) == false) {
+        if(readFromFile && !fileExists(is.inputFilename)) {
             errorText += "ERROR: Input file \"" + is.inputFilename + "\" not found\n";
             startCollection = 0;
         }
 
-        // Check if there are no non-space characters in the output filename
         if(is.outputFilename.find_first_not_of(' ') == string::npos) {
             errorText += "ERROR: Output filename is empty\n";
             startCollection = 0;
@@ -244,6 +262,7 @@ int startupGUIWidgets(InputSettings& is, string& errorText) {
 
     ImGui::SameLine();
 
+    // Make Quit button red
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(ImColor::HSV(0.0f, 0.6f, 0.6f)));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(ImColor::HSV(0.0f, 0.7f, 0.7f)));
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(ImColor::HSV(0.0f, 0.8f, 0.8f)));
@@ -252,6 +271,7 @@ int startupGUIWidgets(InputSettings& is, string& errorText) {
         startCollection = -1;
     }
 
+    // Display error messages in red
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.3f, 0.0f, 1.0f));
     ImGui::TextWrapped(errorText.c_str());
 
@@ -334,6 +354,7 @@ int getOptionsGUI(InputSettings& is) {
         ImGui::SetNextWindowPos(ImVec2(0, 0));
         ImGui::SetNextWindowSize(io.DisplaySize);
 
+        // Create options window with startup widgets
         ImGui::Begin("Options", (bool*) 0, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize);
         startCollection = startupGUIWidgets(is, errorText);
         ImGui::End();
@@ -352,7 +373,7 @@ int getOptionsGUI(InputSettings& is) {
 
     bool stopProgram = false;
     if(startCollection == -1 || glfwWindowShouldClose(window)) {
-        stopProgram = true;
+        stopProgram = true; // Stop program if options window was closed
     }
 
     // Cleanup
@@ -364,7 +385,7 @@ int getOptionsGUI(InputSettings& is) {
     glfwTerminate();
 
     if(stopProgram) {
-        return -1;
+        return -1; // Indicates that the program should stop
     }
 
     return 0;

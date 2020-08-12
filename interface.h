@@ -1,3 +1,12 @@
+/* Aden Prince
+ * HiMER Lab at U. of Illinois, Chicago
+ * ArUco Marker Joint Tracker
+ * 
+ * interface.h
+ * Contains code used in multiple source files, such as libraries,
+ * function declarations, and an InputSettings structure definition.
+ */
+
 #include <opencv2/highgui.hpp>
 #include <string>
 
@@ -17,6 +26,9 @@ struct InputSettings {
     std::string outputFilename;
 };
 
+// Check if a file with the passed filename exists
 bool fileExists(std::string filename);
+// Get program options from the command line
 void getOptionsCLI(InputSettings& is, cv::CommandLineParser& parser);
+// Get program options from a GUI
 int getOptionsGUI(InputSettings& is);
